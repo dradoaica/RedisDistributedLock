@@ -40,19 +40,16 @@ namespace RedisDistributedLock
         public Task ReleaseLockAsync(IDistributedLock lockHandle, CancellationToken cancellationToken)
         {
             DistributedLock entry = (DistributedLock)lockHandle;
-            lock (_distributedLocks)
+            try
             {
-                try
-                {
-                    _redlock.Unlock(entry);
-                }
-                catch
-                {
-                }
-                finally
-                {
-                    _distributedLocks.TryRemove(entry.LockId, out _);
-                }
+             	_redlock.Unlock(entry);
+            }
+            catch
+            {
+            }
+            finally
+            {
+            	_distributedLocks.TryRemove(entry.LockId, out _);
             }
 
             return Task.CompletedTask;
@@ -60,28 +57,20 @@ namespace RedisDistributedLock
 
         public Task<bool> RenewAsync(IDistributedLock lockHandle, CancellationToken cancellationToken)
         {
-            bool result = false;
             DistributedLock entry = (DistributedLock)lockHandle;
-            lock (_distributedLocks)
-            {
-                result = _redlock.Extend(entry);
-            }
-
+	    bool result = _redlock.Extend(entry);      
             return Task.FromResult(result);
         }
 
         public Task<IDistributedLock> TryLockAsync(string account, string lockId, string lockOwnerId, string proposedLeaseId, TimeSpan lockPeriod, CancellationToken cancellationToken)
         {
             DistributedLock entry = null;
-            lock (_distributedLocks)
+	    if (!_distributedLocks.ContainsKey(lockId) && _redlock.Lock(lockId, lockPeriod, out DistributedLock distributedLock))
             {
-                if (!_distributedLocks.ContainsKey(lockId) && _redlock.Lock(lockId, lockPeriod, out DistributedLock distributedLock))
+	    	distributedLock.LockId = lockId;
+                if (_distributedLocks.TryAdd(lockId, distributedLock))
                 {
-                    distributedLock.LockId = lockId;
-                    if (_distributedLocks.TryAdd(lockId, distributedLock))
-                    {
-                        entry = distributedLock;
-                    }
+                    entry = distributedLock;
                 }
             }
 
