@@ -1,8 +1,8 @@
-﻿namespace RedisDistributedLock.Abstractions;
-
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+
+namespace RedisDistributedLock.Abstractions;
 
 /// <summary>
 ///     Manage distributed lock. A lock is specified by (account, lockId).

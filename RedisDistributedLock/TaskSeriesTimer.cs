@@ -1,104 +1,86 @@
-﻿namespace RedisDistributedLock;
-
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Abstractions;
+using RedisDistributedLock.Abstractions;
+
+namespace RedisDistributedLock;
 
 /// <summary>Represents a timer that executes one task after another in a series.</summary>
-public sealed class TaskSeriesTimer : ITaskSeriesTimer
+public sealed class TaskSeriesTimer(ITaskSeriesCommand? command, Task? initialWait, Func<bool>? preExecuteCheck = null)
+    : ITaskSeriesTimer
 {
-    private readonly CancellationTokenSource cancellationTokenSource;
-    private readonly ITaskSeriesCommand command;
-    private readonly Task initialWait;
-    private readonly Func<bool>? preExecuteCheck;
+    private readonly CancellationTokenSource cancellationTokenSource = new();
+    private readonly ITaskSeriesCommand command = command ?? throw new ArgumentNullException(nameof(command));
+    private readonly Task initialWait = initialWait ?? throw new ArgumentNullException(nameof(initialWait));
     private bool disposed;
-    private Task run;
+    private Task? run;
     private bool started;
     private bool stopped;
 
-    public TaskSeriesTimer(ITaskSeriesCommand command, Task initialWait, Func<bool>? preExecuteCheck = null)
-    {
-        if (command == null)
-        {
-            throw new ArgumentNullException("command");
-        }
-
-        if (initialWait == null)
-        {
-            throw new ArgumentNullException("initialWait");
-        }
-
-        this.command = command;
-        this.initialWait = initialWait;
-        this.preExecuteCheck = preExecuteCheck;
-        this.cancellationTokenSource = new CancellationTokenSource();
-    }
-
     public void Start()
     {
-        this.ThrowIfDisposed();
+        ThrowIfDisposed();
 
-        if (this.started)
+        if (started)
         {
             throw new InvalidOperationException("The timer has already been started; it cannot be restarted.");
         }
 
-        this.run = this.RunAsync(this.cancellationTokenSource.Token);
-        this.started = true;
+        run = RunAsync(cancellationTokenSource.Token);
+        started = true;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        this.ThrowIfDisposed();
+        ThrowIfDisposed();
 
-        if (!this.started)
+        if (!started)
         {
             throw new InvalidOperationException("The timer has not yet been started.");
         }
 
-        if (this.stopped)
+        if (stopped)
         {
             throw new InvalidOperationException("The timer has already been stopped.");
         }
 
-        this.cancellationTokenSource.Cancel();
-        return this.StopAsyncCore(cancellationToken);
+        cancellationTokenSource.Cancel();
+        return StopAsyncCore(cancellationToken);
     }
 
     public void Cancel()
     {
-        this.ThrowIfDisposed();
-        this.cancellationTokenSource.Cancel();
+        ThrowIfDisposed();
+        cancellationTokenSource.Cancel();
     }
 
     public void Dispose()
     {
-        if (!this.disposed)
+        if (!disposed)
         {
             // Running callers might still be using the cancellation token.
             // Mark it canceled but don't dispose of the source while the callers are running.
             // Otherwise, callers would receive ObjectDisposedException when calling token.Register.
             // For now, rely on finalization to clean up _cancellationTokenSource's wait handle (if allocated).
-            this.cancellationTokenSource.Cancel();
-            this.cancellationTokenSource.Dispose();
+            cancellationTokenSource.Cancel();
+            cancellationTokenSource.Dispose();
 
-            this.disposed = true;
+            disposed = true;
         }
     }
 
     private async Task StopAsyncCore(CancellationToken cancellationToken)
     {
-        await Task.Delay(0);
+        await Task.Delay(0, cancellationToken).ConfigureAwait(false);
         var cancellationTaskSource = new TaskCompletionSource<object>();
 
-        using (cancellationToken.Register(() => cancellationTaskSource.SetCanceled()))
+        await using (cancellationToken.Register(() => cancellationTaskSource.SetCanceled()))
         {
             // Wait for all pending command tasks to complete (or cancellation of the token) before returning.
-            await Task.WhenAny(this.run, cancellationTaskSource.Task);
+            await Task.WhenAny(run, cancellationTaskSource.Task).ConfigureAwait(false);
         }
 
-        this.stopped = true;
+        stopped = true;
     }
 
     private async Task RunAsync(CancellationToken cancellationToken)
@@ -108,18 +90,18 @@ public sealed class TaskSeriesTimer : ITaskSeriesTimer
             // Allow Start to return immediately without waiting for any initial iteration work to start.
             await Task.Yield();
 
-            var wait = this.initialWait;
+            var wait = initialWait;
 
             // Execute tasks one at a time (in a series) until stopped.
             while (!cancellationToken.IsCancellationRequested)
             {
                 var cancellationTaskSource = new TaskCompletionSource<object>();
 
-                using (cancellationToken.Register(() => cancellationTaskSource.SetCanceled()))
+                await using (cancellationToken.Register(() => cancellationTaskSource.SetCanceled()))
                 {
                     try
                     {
-                        await Task.WhenAny(wait, cancellationTaskSource.Task);
+                        await Task.WhenAny(wait, cancellationTaskSource.Task).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {
@@ -129,13 +111,14 @@ public sealed class TaskSeriesTimer : ITaskSeriesTimer
 
                 try
                 {
-                    if (this.preExecuteCheck != null && !this.preExecuteCheck())
+                    if (preExecuteCheck != null && !preExecuteCheck())
                     {
-                        await this.StopAsync(CancellationToken.None);
+                        await StopAsync(cancellationToken).ConfigureAwait(false);
                     }
                 }
                 catch
                 {
+                    // ignored
                 }
 
                 if (cancellationToken.IsCancellationRequested)
@@ -145,7 +128,7 @@ public sealed class TaskSeriesTimer : ITaskSeriesTimer
 
                 try
                 {
-                    var result = await this.command.ExecuteAsync(cancellationToken);
+                    var result = await command.ExecuteAsync(cancellationToken).ConfigureAwait(false);
                     wait = result.Wait;
                 }
                 catch (Exception ex) when (ex.InnerException is OperationCanceledException)
@@ -168,7 +151,7 @@ public sealed class TaskSeriesTimer : ITaskSeriesTimer
 
     private void ThrowIfDisposed()
     {
-        if (this.disposed)
+        if (disposed)
         {
             throw new ObjectDisposedException(null);
         }

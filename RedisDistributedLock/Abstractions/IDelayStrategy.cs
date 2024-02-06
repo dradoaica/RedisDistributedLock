@@ -1,6 +1,6 @@
-﻿namespace RedisDistributedLock.Abstractions;
+﻿using System;
 
-using System;
+namespace RedisDistributedLock.Abstractions;
 
 public interface IDelayStrategy
 {

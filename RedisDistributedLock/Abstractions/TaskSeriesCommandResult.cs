@@ -1,13 +1,11 @@
-﻿namespace RedisDistributedLock.Abstractions;
+﻿using System.Threading.Tasks;
 
-using System.Threading.Tasks;
+namespace RedisDistributedLock.Abstractions;
 
-public struct TaskSeriesCommandResult
+public readonly struct TaskSeriesCommandResult(Task wait)
 {
-    public TaskSeriesCommandResult(Task wait) => this.Wait = wait;
-
     /// <summary>
     ///     Wait for this task to complete before calling <see cref="ITaskSeriesCommand.ExecuteAsync" /> again.
     /// </summary>
-    public Task Wait { get; }
+    public Task Wait { get; } = wait;
 }

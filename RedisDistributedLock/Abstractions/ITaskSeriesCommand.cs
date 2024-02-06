@@ -1,7 +1,7 @@
-﻿namespace RedisDistributedLock.Abstractions;
-
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
+
+namespace RedisDistributedLock.Abstractions;
 
 public interface ITaskSeriesCommand
 {

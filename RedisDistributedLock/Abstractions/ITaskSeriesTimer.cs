@@ -1,8 +1,8 @@
-﻿namespace RedisDistributedLock.Abstractions;
-
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+
+namespace RedisDistributedLock.Abstractions;
 
 public interface ITaskSeriesTimer : IDisposable
 {

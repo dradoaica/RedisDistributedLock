@@ -1,24 +1,16 @@
-﻿namespace RedisDistributedLock;
-
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
-using Abstractions;
+using RedisDistributedLock.Abstractions;
 
-public class RecurrentTaskSeriesCommand : ITaskSeriesCommand
+namespace RedisDistributedLock;
+
+public class RecurrentTaskSeriesCommand(IRecurrentCommand innerCommand, IDelayStrategy delayStrategy)
+    : ITaskSeriesCommand
 {
-    private readonly IDelayStrategy delayStrategy;
-    private readonly IRecurrentCommand innerCommand;
-
-    public RecurrentTaskSeriesCommand(IRecurrentCommand innerCommand, IDelayStrategy delayStrategy)
-    {
-        this.innerCommand = innerCommand;
-        this.delayStrategy = delayStrategy;
-    }
-
     public async Task<TaskSeriesCommandResult> ExecuteAsync(CancellationToken cancellationToken)
     {
-        var succeeded = await this.innerCommand.TryExecuteAsync(cancellationToken);
-        var wait = Task.Delay(this.delayStrategy.GetNextDelay(succeeded));
+        var succeeded = await innerCommand.TryExecuteAsync(cancellationToken).ConfigureAwait(false);
+        var wait = Task.Delay(delayStrategy.GetNextDelay(succeeded), cancellationToken);
         return new TaskSeriesCommandResult(wait);
     }
 }

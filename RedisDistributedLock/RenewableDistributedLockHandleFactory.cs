@@ -1,8 +1,8 @@
-namespace RedisDistributedLock;
-
 using System;
 using System.Threading.Tasks;
-using Abstractions;
+using RedisDistributedLock.Abstractions;
+
+namespace RedisDistributedLock;
 
 public static class RenewableDistributedLockHandleFactory
 {

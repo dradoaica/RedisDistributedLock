@@ -1,8 +1,8 @@
-﻿namespace RedisDistributedLock;
-
-using System;
+﻿using System;
 using System.Threading.Tasks;
-using Abstractions;
+using RedisDistributedLock.Abstractions;
+
+namespace RedisDistributedLock;
 
 public class LinearSpeedupStrategy : IDelayStrategy
 {
@@ -11,57 +11,55 @@ public class LinearSpeedupStrategy : IDelayStrategy
     private readonly TimeSpan normalInterval;
     private TimeSpan currentInterval;
 
-    public LinearSpeedupStrategy(TimeSpan normalInterval, TimeSpan minimumInterval)
-        : this(normalInterval, minimumInterval, 2)
-    {
-    }
-
-    public LinearSpeedupStrategy(TimeSpan normalInterval, TimeSpan minimumInterval, int failureSpeedupDivisor)
+    public LinearSpeedupStrategy(TimeSpan normalInterval, TimeSpan minimumInterval, int failureSpeedupDivisor = 2)
     {
         if (normalInterval.Ticks < 0)
         {
-            throw new ArgumentOutOfRangeException("normalInterval", "The TimeSpan must not be negative.");
+            throw new ArgumentOutOfRangeException(nameof(normalInterval), "The TimeSpan must not be negative.");
         }
 
         if (minimumInterval.Ticks < 0)
         {
-            throw new ArgumentOutOfRangeException("minimumInterval", "The TimeSpan must not be negative.");
+            throw new ArgumentOutOfRangeException(nameof(minimumInterval), "The TimeSpan must not be negative.");
         }
 
         if (minimumInterval.Ticks > normalInterval.Ticks)
         {
             throw new ArgumentException("The minimumInterval must not be greater than the normalInterval.",
-                "minimumInterval");
+                nameof(minimumInterval));
         }
 
         if (failureSpeedupDivisor < 1)
         {
-            throw new ArgumentOutOfRangeException("failureSpeedupDivisor",
+            throw new ArgumentOutOfRangeException(nameof(failureSpeedupDivisor),
                 "The failureSpeedupDivisor must not be less than 1.");
         }
 
         this.normalInterval = normalInterval;
         this.minimumInterval = minimumInterval;
         this.failureSpeedupDivisor = failureSpeedupDivisor;
-        this.currentInterval = normalInterval;
+        currentInterval = normalInterval;
     }
 
     public TimeSpan GetNextDelay(bool executionSucceeded)
     {
         if (executionSucceeded)
         {
-            this.currentInterval = this.normalInterval;
+            currentInterval = normalInterval;
         }
         else
         {
-            var speedupInterval = new TimeSpan(this.currentInterval.Ticks / this.failureSpeedupDivisor);
-            this.currentInterval = Max(speedupInterval, this.minimumInterval);
+            var speedupInterval = new TimeSpan(currentInterval.Ticks / failureSpeedupDivisor);
+            currentInterval = Max(speedupInterval, minimumInterval);
         }
 
-        return this.currentInterval;
+        return currentInterval;
     }
 
-    private static TimeSpan Max(TimeSpan x, TimeSpan y) => x.Ticks > y.Ticks ? x : y;
+    private static TimeSpan Max(TimeSpan x, TimeSpan y)
+    {
+        return x.Ticks > y.Ticks ? x : y;
+    }
 
     public static ITaskSeriesTimer CreateTimer(IRecurrentCommand command, TimeSpan normalInterval,
         TimeSpan minimumInterval)
