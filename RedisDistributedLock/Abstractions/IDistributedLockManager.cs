@@ -5,14 +5,14 @@ using System.Threading.Tasks;
 namespace RedisDistributedLock.Abstractions;
 
 /// <summary>
-///     Manage distributed lock. A lock is specified by (account, lockId).
+///     Manage distributed lock. A lock is specified by lockId.
 /// </summary>
 /// <remarks>
 /// </remarks>
 public interface IDistributedLockManager
 {
     /// <summary>
-    ///     Try to acquire a lock specified by (account, lockId).
+    ///     Try to acquire a lock specified by lockId.
     /// </summary>
     /// <param name="lockId">The name of the lock. </param>
     /// <param name="lockPeriod">
@@ -27,14 +27,14 @@ public interface IDistributedLockManager
         CancellationToken cancellationToken);
 
     /// <summary>
-    ///     Try create a renewable lock handle specified by (account, lockId).
+    ///     Try create a renewable lock handle specified by lockId.
     /// </summary>
     /// <param name="lockId">The name of the lock. </param>
     /// <param name="lockPeriod">
-    ///     The length of the lease to acquire. The caller is responsible for Renewing the lease well before this time is up.
-    ///     The exact value here is restricted based on the underlying implementation.
+    ///     The length of the lease to acquire. The exact value here is restricted based on the underlying implementation.
     /// </param>
     /// <param name="leasePeriod"></param>
+    /// <param name="linear"></param>
     /// <param name="preExecuteCheck"></param>
     /// <param name="cancellationToken"></param>
     /// <returns>Null if can't acquire the lock. This is common if somebody else holds it.</returns>
@@ -42,6 +42,7 @@ public interface IDistributedLockManager
         string lockId,
         TimeSpan lockPeriod,
         TimeSpan leasePeriod,
+        bool linear,
         Func<bool>? preExecuteCheck,
         CancellationToken cancellationToken);
 
@@ -63,7 +64,7 @@ public interface IDistributedLockManager
     /// <summary>
     ///     Release a lock that was previously acquired via TryLockAsync.
     /// </summary>
-    /// <param name="lockHandle">previously acquired handle to be released</param>
+    /// <param name="lockHandle">The previously acquired handle to be released.</param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
     Task ReleaseLockAsync(

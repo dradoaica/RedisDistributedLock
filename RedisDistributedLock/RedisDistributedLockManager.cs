@@ -46,14 +46,14 @@ public class RedisDistributedLockManager : IDistributedLockManager
     }
 
     public async Task<IRenewableDistributedLockHandle?> TryCreateRenewableLockHandleAsync(string lockId,
-        TimeSpan lockPeriod,
-        TimeSpan leasePeriod, Func<bool>? preExecuteCheck, CancellationToken cancellationToken)
+        TimeSpan lockPeriod, TimeSpan leasePeriod, bool linear, Func<bool>? preExecuteCheck,
+        CancellationToken cancellationToken)
     {
         IRenewableDistributedLockHandle? entry = null;
         var distributedLock = await TryLockAsync(lockId, lockPeriod, cancellationToken).ConfigureAwait(false);
         if (distributedLock != null)
         {
-            entry = RenewableDistributedLockHandleFactory.CreateRenewableLockHandle(leasePeriod, this,
+            entry = RenewableDistributedLockHandleFactory.CreateRenewableLockHandle(leasePeriod, linear, this,
                 distributedLock,
                 preExecuteCheck);
         }

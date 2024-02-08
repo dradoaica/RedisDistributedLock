@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Threading.Tasks;
 using RedisDistributedLock.Abstractions;
 
 namespace RedisDistributedLock;
@@ -59,13 +58,5 @@ public class LinearSpeedupStrategy : IDelayStrategy
     private static TimeSpan Max(TimeSpan x, TimeSpan y)
     {
         return x.Ticks > y.Ticks ? x : y;
-    }
-
-    public static ITaskSeriesTimer CreateTimer(IRecurrentCommand command, TimeSpan normalInterval,
-        TimeSpan minimumInterval)
-    {
-        IDelayStrategy delayStrategy = new LinearSpeedupStrategy(normalInterval, minimumInterval);
-        ITaskSeriesCommand timerCommand = new RecurrentTaskSeriesCommand(command, delayStrategy);
-        return new TaskSeriesTimer(timerCommand, Task.Delay(normalInterval));
     }
 }

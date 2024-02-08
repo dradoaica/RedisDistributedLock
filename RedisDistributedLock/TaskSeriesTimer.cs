@@ -118,7 +118,7 @@ public sealed class TaskSeriesTimer(ITaskSeriesCommand? command, Task? initialWa
                 }
                 catch
                 {
-                    // ignored
+                    // Ignored
                 }
 
                 if (cancellationToken.IsCancellationRequested)
