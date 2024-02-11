@@ -5,11 +5,13 @@ namespace RedisDistributedLock;
 public class RenewableDistributedLockHandle(IDistributedLock handle, ITaskSeriesTimer renewal)
     : IRenewableDistributedLockHandle
 {
-    // The inner lock for the underlying implementation. 
-    // This is a pluggable implementation. 
+    /// <summary>
+    ///     The inner lock for the underlying implementation. This is a pluggable implementation.
+    /// </summary>
     public IDistributedLock InnerLock { get; } = handle;
 
-    // Handle to a timer for renewing the lease. 
-    // We handle the timer.
+    /// <summary>
+    ///     Handle to a timer for renewing the lease. We handle the timer.
+    /// </summary>
     public ITaskSeriesTimer LeaseRenewalTimer { get; } = renewal;
 }
