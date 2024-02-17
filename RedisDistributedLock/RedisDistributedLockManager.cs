@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Dasync.Collections;
+using Microsoft.Extensions.Options;
 using Polly;
 using RedisDistributedLock.Abstractions;
 using StackExchange.Redis;
@@ -14,12 +15,14 @@ namespace RedisDistributedLock;
 public class RedisDistributedLockManager : IDistributedLockManager
 {
     private readonly ConcurrentDictionary<string, DistributedLock> distributedLocks = new();
+    private readonly string lockPrefix;
     private readonly string redisConnectionString;
     private readonly RedLock redLock;
 
-    public RedisDistributedLockManager(string redisConnectionString)
+    public RedisDistributedLockManager(IOptions<RedisDistributedLockOptions> redisDistributedLockOptions)
     {
-        this.redisConnectionString = redisConnectionString;
+        redisConnectionString = redisDistributedLockOptions.Value.RedisConnectionString;
+        lockPrefix = redisDistributedLockOptions.Value.LockPrefix;
         ConnectionMultiplexer connectionMultiplexer =
             GetMultiplexer() ?? throw new ArgumentNullException(nameof(connectionMultiplexer));
         redLock = new RedLock(connectionMultiplexer);
@@ -28,6 +31,11 @@ public class RedisDistributedLockManager : IDistributedLockManager
     public async Task<IDistributedLock?> TryLockAsync(string lockId, TimeSpan lockPeriod,
         CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(lockPrefix) && !lockId.StartsWith(lockPrefix))
+        {
+            lockId = $"{lockPrefix}{lockId}";
+        }
+
         DistributedLock? entry = null;
         if (!distributedLocks.ContainsKey(lockId))
         {
@@ -49,6 +57,11 @@ public class RedisDistributedLockManager : IDistributedLockManager
         TimeSpan lockPeriod, TimeSpan leasePeriod, bool linear, Func<bool>? preExecuteCheck,
         CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(lockPrefix) && !lockId.StartsWith(lockPrefix))
+        {
+            lockId = $"{lockPrefix}{lockId}";
+        }
+
         IRenewableDistributedLockHandle? entry = null;
         var distributedLock = await TryLockAsync(lockId, lockPeriod, cancellationToken).ConfigureAwait(false);
         if (distributedLock != null)
