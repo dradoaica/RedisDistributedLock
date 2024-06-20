@@ -24,13 +24,15 @@ public class LinearSpeedupStrategy : IDelayStrategy
 
         if (minimumInterval.Ticks > normalInterval.Ticks)
         {
-            throw new ArgumentException("The minimumInterval must not be greater than the normalInterval.",
+            throw new ArgumentException(
+                "The minimumInterval must not be greater than the normalInterval.",
                 nameof(minimumInterval));
         }
 
         if (failureSpeedupDivisor < 1)
         {
-            throw new ArgumentOutOfRangeException(nameof(failureSpeedupDivisor),
+            throw new ArgumentOutOfRangeException(
+                nameof(failureSpeedupDivisor),
                 "The failureSpeedupDivisor must not be less than 1.");
         }
 
@@ -55,8 +57,5 @@ public class LinearSpeedupStrategy : IDelayStrategy
         return currentInterval;
     }
 
-    private static TimeSpan Max(TimeSpan x, TimeSpan y)
-    {
-        return x.Ticks > y.Ticks ? x : y;
-    }
+    private static TimeSpan Max(TimeSpan x, TimeSpan y) => x.Ticks > y.Ticks ? x : y;
 }

@@ -6,7 +6,8 @@ namespace RedisDistributedLock;
 
 public static class RedisDistributedLockExtensions
 {
-    public static IServiceCollection AddRedisDistributedLock(this IServiceCollection services,
+    public static IServiceCollection AddRedisDistributedLock(
+        this IServiceCollection services,
         string redisConnectionString,
         Action<RedisDistributedLockOptions>? customiseRedisDistributedLockOptions = null)
     {

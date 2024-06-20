@@ -6,8 +6,12 @@ namespace RedisDistributedLock;
 
 public static class RenewableDistributedLockHandleFactory
 {
-    private static ITaskSeriesTimer CreateLeaseRenewalTimer(TimeSpan leasePeriod, bool linear,
-        IDistributedLockManager distributedLockManager, IDistributedLock lockHandle, Func<bool>? preExecuteCheck)
+    private static ITaskSeriesTimer CreateLeaseRenewalTimer(
+        TimeSpan leasePeriod,
+        bool linear,
+        IDistributedLockManager distributedLockManager,
+        IDistributedLock lockHandle,
+        Func<bool>? preExecuteCheck)
     {
         // renew the lease when it is halfway to expiring   
         var normalUpdateInterval = new TimeSpan(leasePeriod.Ticks / 2);
@@ -18,11 +22,14 @@ public static class RenewableDistributedLockHandleFactory
         return new TaskSeriesTimer(command, Task.Delay(normalUpdateInterval), preExecuteCheck);
     }
 
-    public static RenewableDistributedLockHandle CreateRenewableLockHandle(TimeSpan leasePeriod, bool linear,
-        IDistributedLockManager distributedLockManager, IDistributedLock lockHandle, Func<bool>? preExecuteCheck)
+    public static RenewableDistributedLockHandle CreateRenewableLockHandle(
+        TimeSpan leasePeriod,
+        bool linear,
+        IDistributedLockManager distributedLockManager,
+        IDistributedLock lockHandle,
+        Func<bool>? preExecuteCheck)
     {
-        var renewal =
-            CreateLeaseRenewalTimer(leasePeriod, linear, distributedLockManager, lockHandle, preExecuteCheck);
+        var renewal = CreateLeaseRenewalTimer(leasePeriod, linear, distributedLockManager, lockHandle, preExecuteCheck);
         renewal.Start();
         return new RenewableDistributedLockHandle(lockHandle, renewal);
     }

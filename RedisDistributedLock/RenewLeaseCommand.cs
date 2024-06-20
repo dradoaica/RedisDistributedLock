@@ -7,8 +7,7 @@ namespace RedisDistributedLock;
 public class RenewLeaseCommand(
     IDistributedLockManager distributedLockManager,
     IDistributedLock distributedLock,
-    IDelayStrategy delayStrategy)
-    : ITaskSeriesCommand
+    IDelayStrategy delayStrategy) : ITaskSeriesCommand
 {
     public async Task<TaskSeriesCommandResult> ExecuteAsync(CancellationToken cancellationToken)
     {

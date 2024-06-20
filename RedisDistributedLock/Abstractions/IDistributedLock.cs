@@ -2,8 +2,6 @@
 
 public interface IDistributedLock
 {
-    /// <summary>
-    ///     The Lock identity.
-    /// </summary>
+    /// <summary>The Lock identity.</summary>
     string LockId { get; }
 }
