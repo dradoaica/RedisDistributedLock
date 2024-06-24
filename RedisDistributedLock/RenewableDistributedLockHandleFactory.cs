@@ -1,6 +1,6 @@
+using RedisDistributedLock.Abstractions;
 using System;
 using System.Threading.Tasks;
-using RedisDistributedLock.Abstractions;
 
 namespace RedisDistributedLock;
 

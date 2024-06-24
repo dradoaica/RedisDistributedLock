@@ -1,5 +1,5 @@
-﻿using System;
-using RedisDistributedLock.Abstractions;
+﻿using RedisDistributedLock.Abstractions;
+using System;
 
 namespace RedisDistributedLock;
 
