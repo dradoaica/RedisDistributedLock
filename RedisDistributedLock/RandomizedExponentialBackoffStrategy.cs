@@ -13,17 +13,16 @@ internal class RandomizedExponentialBackoffStrategy : IDelayStrategy
     private TimeSpan currentInterval;
     private Random? random;
 
-    public RandomizedExponentialBackoffStrategy(TimeSpan minimumInterval, TimeSpan maximumInterval) : this(
-        minimumInterval,
-        maximumInterval,
-        minimumInterval)
+    public RandomizedExponentialBackoffStrategy(TimeSpan minimumInterval, TimeSpan maximumInterval)
+        : this(minimumInterval, maximumInterval, minimumInterval)
     {
     }
 
     public RandomizedExponentialBackoffStrategy(
         TimeSpan minimumInterval,
         TimeSpan maximumInterval,
-        TimeSpan deltaBackoff)
+        TimeSpan deltaBackoff
+    )
     {
         if (minimumInterval.Ticks < 0)
         {
@@ -39,7 +38,8 @@ internal class RandomizedExponentialBackoffStrategy : IDelayStrategy
         {
             throw new ArgumentException(
                 "The minimumInterval must not be greater than the maximumInterval.",
-                nameof(minimumInterval));
+                nameof(minimumInterval)
+            );
         }
 
         this.minimumInterval = minimumInterval;

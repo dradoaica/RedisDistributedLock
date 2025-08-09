@@ -11,7 +11,8 @@ public static class RenewableDistributedLockHandleFactory
         bool linear,
         IDistributedLockManager distributedLockManager,
         IDistributedLock lockHandle,
-        Func<bool>? preExecuteCheck)
+        Func<bool>? preExecuteCheck
+    )
     {
         // renew the lease when it is halfway to expiring   
         var normalUpdateInterval = new TimeSpan(leasePeriod.Ticks / 2);
@@ -27,7 +28,8 @@ public static class RenewableDistributedLockHandleFactory
         bool linear,
         IDistributedLockManager distributedLockManager,
         IDistributedLock lockHandle,
-        Func<bool>? preExecuteCheck)
+        Func<bool>? preExecuteCheck
+    )
     {
         var renewal = CreateLeaseRenewalTimer(leasePeriod, linear, distributedLockManager, lockHandle, preExecuteCheck);
         renewal.Start();

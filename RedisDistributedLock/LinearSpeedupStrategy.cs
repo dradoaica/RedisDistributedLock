@@ -26,14 +26,16 @@ public class LinearSpeedupStrategy : IDelayStrategy
         {
             throw new ArgumentException(
                 "The minimumInterval must not be greater than the normalInterval.",
-                nameof(minimumInterval));
+                nameof(minimumInterval)
+            );
         }
 
         if (failureSpeedupDivisor < 1)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(failureSpeedupDivisor),
-                "The failureSpeedupDivisor must not be less than 1.");
+                "The failureSpeedupDivisor must not be less than 1."
+            );
         }
 
         this.normalInterval = normalInterval;

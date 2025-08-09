@@ -31,7 +31,8 @@ public class RedisDistributedLockManager : IDistributedLockManager
     public async Task<IDistributedLock?> TryLockAsync(
         string lockId,
         TimeSpan lockPeriod,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (!string.IsNullOrWhiteSpace(lockPrefix) && !lockId.StartsWith(lockPrefix))
         {
@@ -60,7 +61,8 @@ public class RedisDistributedLockManager : IDistributedLockManager
         TimeSpan leasePeriod,
         bool linear,
         Func<bool>? preExecuteCheck,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (!string.IsNullOrWhiteSpace(lockPrefix) && !lockId.StartsWith(lockPrefix))
         {
@@ -76,7 +78,8 @@ public class RedisDistributedLockManager : IDistributedLockManager
                 linear,
                 this,
                 distributedLock,
-                preExecuteCheck);
+                preExecuteCheck
+            );
         }
 
         return entry;
@@ -195,8 +198,8 @@ public class RedisDistributedLockManager : IDistributedLockManager
             bool succeeded;
             try
             {
-                RedisKey[] key = [resource];
-                RedisValue[] values = [val];
+                RedisKey[] key = [resource,];
+                RedisValue[] values = [val,];
                 var redis = redisMasterDictionary[redisServer];
                 var extendResult = (long)await redis.GetDatabase()
                     .ScriptEvaluateAsync(UnlockScript, key, values)
@@ -217,8 +220,8 @@ public class RedisDistributedLockManager : IDistributedLockManager
             try
             {
                 var redis = redisMasterDictionary[redisServer];
-                RedisKey[] key = [resource];
-                RedisValue[] values = [val, (long)ttl.TotalMilliseconds];
+                RedisKey[] key = [resource,];
+                RedisValue[] values = [val, (long)ttl.TotalMilliseconds,];
                 // Returns 1 on success, 0 on failure setting expiry or key not existing, -1 if the key value didn't match
                 var extendResult = (long)await redis.GetDatabase()
                     .ScriptEvaluateAsync(ExtendScript, key, values)
@@ -245,23 +248,23 @@ public class RedisDistributedLockManager : IDistributedLockManager
                         var maxRetryDelay = (int)DefaultRetryDelay.TotalMilliseconds;
                         var rnd = new Random();
                         return TimeSpan.FromMilliseconds(rnd.Next(maxRetryDelay));
-                    })
-                .ExecuteAsync(
-                    async () =>
+                    }
+                )
+                .ExecuteAsync(async () =>
                     {
                         try
                         {
                             var n = 0;
                             var startTime = DateTime.Now;
                             // Use keys
-                            await redisMasterDictionary.ParallelForEachAsync(
-                                    async kvp =>
+                            await redisMasterDictionary.ParallelForEachAsync(async kvp =>
                                     {
                                         if (await LockInstanceAsync(kvp.Key, resource!, val, ttl).ConfigureAwait(false))
                                         {
                                             n++;
                                         }
-                                    })
+                                    }
+                                )
                                 .ConfigureAwait(false);
 
                             /*
@@ -277,11 +280,11 @@ public class RedisDistributedLockManager : IDistributedLockManager
                                 return true;
                             }
 
-                            await redisMasterDictionary.ParallelForEachAsync(
-                                    async kvp =>
+                            await redisMasterDictionary.ParallelForEachAsync(async kvp =>
                                     {
                                         await UnlockInstanceAsync(kvp.Key, resource!, val).ConfigureAwait(false);
-                                    })
+                                    }
+                                )
                                 .ConfigureAwait(false);
                             return false;
                         }
@@ -289,7 +292,8 @@ public class RedisDistributedLockManager : IDistributedLockManager
                         {
                             return false;
                         }
-                    })
+                    }
+                )
                 .ConfigureAwait(false);
 
             return (successful, innerLock);
@@ -303,22 +307,22 @@ public class RedisDistributedLockManager : IDistributedLockManager
                     var maxRetryDelay = (int)DefaultRetryDelay.TotalMilliseconds;
                     var rnd = new Random();
                     return TimeSpan.FromMilliseconds(rnd.Next(maxRetryDelay));
-                })
-            .ExecuteAsync(
-                async () =>
+                }
+            )
+            .ExecuteAsync(async () =>
                 {
                     try
                     {
                         var n = 0;
-                        await redisMasterDictionary.ParallelForEachAsync(
-                                async kvp =>
+                        await redisMasterDictionary.ParallelForEachAsync(async kvp =>
                                 {
                                     if (await UnlockInstanceAsync(kvp.Key, lockObject.Resource!, lockObject.Value!)
                                             .ConfigureAwait(false))
                                     {
                                         n++;
                                     }
-                                })
+                                }
+                            )
                             .ConfigureAwait(false);
                         if (n >= Quorum)
                         {
@@ -331,7 +335,8 @@ public class RedisDistributedLockManager : IDistributedLockManager
                     {
                         return false;
                     }
-                })
+                }
+            )
             .ConfigureAwait(false);
 
         public async Task<bool> ExtendAsync(DistributedLock lockObject) => await Policy.HandleResult(false)
@@ -342,28 +347,29 @@ public class RedisDistributedLockManager : IDistributedLockManager
                     var maxRetryDelay = (int)DefaultRetryDelay.TotalMilliseconds;
                     var rnd = new Random();
                     return TimeSpan.FromMilliseconds(rnd.Next(maxRetryDelay));
-                })
-            .ExecuteAsync(
-                async () =>
+                }
+            )
+            .ExecuteAsync(async () =>
                 {
                     try
                     {
                         var n = 0;
                         var startTime = DateTime.Now;
                         // Use keys
-                        await redisMasterDictionary.ParallelForEachAsync(
-                                async kvp =>
+                        await redisMasterDictionary.ParallelForEachAsync(async kvp =>
                                 {
                                     if (await ExtendInstanceAsync(
                                                 kvp.Key,
                                                 lockObject.Resource!,
                                                 lockObject.Value!,
-                                                lockObject.Validity)
+                                                lockObject.Validity
+                                            )
                                             .ConfigureAwait(false))
                                     {
                                         n++;
                                     }
-                                })
+                                }
+                            )
                             .ConfigureAwait(false);
 
                         /*
@@ -380,12 +386,12 @@ public class RedisDistributedLockManager : IDistributedLockManager
                             return true;
                         }
 
-                        await redisMasterDictionary.ParallelForEachAsync(
-                                async kvp =>
+                        await redisMasterDictionary.ParallelForEachAsync(async kvp =>
                                 {
                                     await UnlockInstanceAsync(kvp.Key, lockObject.Resource!, lockObject.Value!)
                                         .ConfigureAwait(false);
-                                })
+                                }
+                            )
                             .ConfigureAwait(false);
                         return false;
                     }
@@ -393,7 +399,8 @@ public class RedisDistributedLockManager : IDistributedLockManager
                     {
                         return false;
                     }
-                })
+                }
+            )
             .ConfigureAwait(false);
     }
 }

@@ -35,7 +35,8 @@ public interface IDistributedLockManager
         TimeSpan leasePeriod,
         bool linear,
         Func<bool>? preExecuteCheck,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     /// <summary>Called by the client to renew the lease.</summary>
     /// <param name="lockHandle"></param>

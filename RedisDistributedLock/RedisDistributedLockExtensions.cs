@@ -9,14 +9,15 @@ public static class RedisDistributedLockExtensions
     public static IServiceCollection AddRedisDistributedLock(
         this IServiceCollection services,
         string redisConnectionString,
-        Action<RedisDistributedLockOptions>? customiseRedisDistributedLockOptions = null)
+        Action<RedisDistributedLockOptions>? customiseRedisDistributedLockOptions = null
+    )
     {
-        services.Configure<RedisDistributedLockOptions>(
-            options =>
+        services.Configure<RedisDistributedLockOptions>(options =>
             {
                 options.RedisConnectionString = redisConnectionString;
                 customiseRedisDistributedLockOptions?.Invoke(options);
-            });
+            }
+        );
         services.AddSingleton<IDistributedLockManager, RedisDistributedLockManager>();
         return services;
     }
