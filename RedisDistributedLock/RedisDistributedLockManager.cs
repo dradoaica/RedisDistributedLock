@@ -16,8 +16,8 @@ public class RedisDistributedLockManager : IDistributedLockManager
 {
     private readonly ConcurrentDictionary<string, DistributedLock> distributedLocks = new();
     private readonly string lockPrefix;
-    private readonly string redisConnectionString;
     private readonly RedLock redLock;
+    private readonly string redisConnectionString;
 
     public RedisDistributedLockManager(IOptions<RedisDistributedLockOptions> redisDistributedLockOptions)
     {
