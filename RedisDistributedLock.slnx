@@ -5,6 +5,7 @@
         <File Path=".gitignore"/>
         <File Path="CODE_OF_CONDUCT.md"/>
         <File Path="CONTRIBUTING.md"/>
+        <File Path="docker-compose.yaml"/>
         <File Path="global.json"/>
         <File Path="LICENSE.md"/>
         <File Path="NuGet.Config"/>

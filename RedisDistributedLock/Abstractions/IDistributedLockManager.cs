@@ -45,7 +45,10 @@ public interface IDistributedLockManager
     ///     A hint used for determining the next time delay in calling Renew. True means the next execution should occur
     ///     at a normal delay. False means the next execution should occur quickly; use this in network error cases.
     /// </returns>
-    /// <remarks>If this throws an exception, the lease is cancelled.</remarks>
+    /// <remarks>
+    ///     If this throws an exception, the lease is cancelled. Throws <c>DistributedLockLostException</c> when the lock
+    ///     expired or is held by someone else.
+    /// </remarks>
     Task<bool> RenewAsync(IDistributedLock lockHandle, CancellationToken cancellationToken);
 
     /// <summary>Release a lock that was previously acquired via TryLockAsync.</summary>

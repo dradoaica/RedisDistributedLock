@@ -1,11 +1,11 @@
-﻿using Dasync.Collections;
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using Polly;
 using RedisDistributedLock.Abstractions;
 using StackExchange.Redis;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,15 +17,17 @@ public class RedisDistributedLockManager : IDistributedLockManager
     private readonly ConcurrentDictionary<string, DistributedLock> distributedLocks = new();
     private readonly string lockPrefix;
     private readonly RedLock redLock;
-    private readonly string redisConnectionString;
 
     public RedisDistributedLockManager(IOptions<RedisDistributedLockOptions> redisDistributedLockOptions)
     {
-        redisConnectionString = redisDistributedLockOptions.Value.RedisConnectionString;
         lockPrefix = redisDistributedLockOptions.Value.LockPrefix;
-        ConnectionMultiplexer connectionMultiplexer =
-            GetMultiplexer() ?? throw new ArgumentNullException(nameof(connectionMultiplexer));
-        redLock = new RedLock(connectionMultiplexer);
+        var redisConnectionStrings = GetConnectionStrings(redisDistributedLockOptions.Value);
+        if (redisConnectionStrings.Count == 0)
+        {
+            throw new InvalidOperationException("At least one Redis connection string must be configured.");
+        }
+
+        redLock = new RedLock(redisConnectionStrings.Select(GetMultiplexer).ToArray());
     }
 
     public async Task<IDistributedLock?> TryLockAsync(
@@ -106,34 +108,68 @@ public class RedisDistributedLockManager : IDistributedLockManager
     {
         var entry = (DistributedLock)lockHandle;
         var result = await redLock.ExtendAsync(entry).ConfigureAwait(false);
-        return result;
-    }
-
-    private ConnectionMultiplexer? GetMultiplexer()
-    {
-        if (string.IsNullOrWhiteSpace(redisConnectionString))
+        if (result == ExtendResult.Extended)
         {
-            return null;
+            return true;
         }
 
+        // Either a quorum can no longer be reached, or we failed to extend the lock before it expired
+        if (result == ExtendResult.Lost || entry.IsExpired)
+        {
+            distributedLocks.TryRemove(entry.LockId, out _);
+            throw new DistributedLockLostException(entry.LockId);
+        }
+
+        return false;
+    }
+
+    private static List<string> GetConnectionStrings(RedisDistributedLockOptions options)
+    {
+        var redisConnectionStrings = new List<string>();
+        if (!string.IsNullOrWhiteSpace(options.RedisConnectionString))
+        {
+            redisConnectionStrings.Add(options.RedisConnectionString);
+        }
+
+        redisConnectionStrings.AddRange(options.RedisConnectionStrings.Where(cs => !string.IsNullOrWhiteSpace(cs)));
+        return redisConnectionStrings.Distinct().ToList();
+    }
+
+    private static ConnectionMultiplexer GetMultiplexer(string redisConnectionString)
+    {
         var options = ConfigurationOptions.Parse(redisConnectionString);
         options.ClientName = $"{nameof(RedisDistributedLockManager)}";
         return ConnectionMultiplexer.ConnectAsync(options).GetAwaiter().GetResult();
     }
 
-    private class DistributedLock(RedisKey resource, RedisValue value, TimeSpan validity, string lockId)
-        : IDistributedLock
+    private static long GetTimestampAfter(TimeSpan timeSpan) =>
+        Stopwatch.GetTimestamp() + (long)(timeSpan.TotalSeconds * Stopwatch.Frequency);
+
+    private enum ExtendResult
+    {
+        Extended,
+        Failed,
+        Lost,
+    }
+
+    private class DistributedLock(RedisKey resource, RedisValue value, TimeSpan ttl, string lockId) : IDistributedLock
     {
         public RedisKey Resource { get; } = resource;
 
         public RedisValue Value { get; } = value;
 
-        public TimeSpan Validity { get; } = validity;
+        /// <summary>The requested time to live, also used when extending the lock.</summary>
+        public TimeSpan Ttl { get; } = ttl;
+
+        /// <summary>The <see cref="Stopwatch" /> timestamp after which the lock can no longer be assumed to be held.</summary>
+        public long ValidUntil { get; set; }
+
+        public bool IsExpired => Stopwatch.GetTimestamp() >= ValidUntil;
 
         public string LockId { get; } = lockId;
     }
 
-    private class RedLock
+    private class RedLock(IReadOnlyList<ConnectionMultiplexer> redisMasters)
     {
         private const int DefaultRetryCount = 3;
         private const double ClockDriveFactor = 0.01;
@@ -149,10 +185,11 @@ public class RedisDistributedLockManager : IDistributedLockManager
                                             end
                                             """;
 
+        // Never recreates a missing key: it expired or was released, so another client may have acquired it since
         private const string ExtendScript = """
                                             local currentVal = redis.call('get', KEYS[1])
                                             if (currentVal == false) then
-                                                return redis.call('set', KEYS[1], ARGV[1], 'PX', ARGV[2]) and 1 or 0
+                                                return 0
                                             elseif (currentVal == ARGV[1]) then
                                                 return redis.call('pexpire', KEYS[1], ARGV[2])
                                             else
@@ -161,26 +198,39 @@ public class RedisDistributedLockManager : IDistributedLockManager
                                             """;
 
         private static readonly TimeSpan DefaultRetryDelay = new(0, 0, 0, 0, 200);
-        private readonly Dictionary<string, ConnectionMultiplexer> redisMasterDictionary = new();
 
-        public RedLock(params ConnectionMultiplexer[] list)
-        {
-            foreach (var item in list)
-            {
-                redisMasterDictionary.Add(item.GetEndPoints().First().ToString(), item);
-            }
-        }
-
-        private int Quorum => (redisMasterDictionary.Count / 2) + 1;
+        private int Quorum => (redisMasters.Count / 2) + 1;
 
         private static byte[] CreateUniqueLockId() => Guid.NewGuid().ToByteArray();
 
-        private async Task<bool> LockInstanceAsync(string redisServer, string resource, byte[] val, TimeSpan ttl)
+        private static TimeSpan GetRetryDelay(int retryAttempt)
+        {
+            var maxRetryDelay = (int)DefaultRetryDelay.TotalMilliseconds;
+            var rnd = new Random();
+            return TimeSpan.FromMilliseconds(rnd.Next(maxRetryDelay));
+        }
+
+        /*
+         * Add 2 milliseconds to the drift to account for Redis expires
+         * precision, which is 1 millisecond, plus 1 millisecond min drift
+         * for small TTLs.
+         */
+        private static TimeSpan GetValidityTime(TimeSpan ttl, TimeSpan elapsed)
+        {
+            var drift = Convert.ToInt32((ttl.TotalMilliseconds * ClockDriveFactor) + 2);
+            return ttl - elapsed - new TimeSpan(0, 0, 0, 0, drift);
+        }
+
+        private static async Task<bool> LockInstanceAsync(
+            ConnectionMultiplexer redis,
+            string resource,
+            byte[] val,
+            TimeSpan ttl
+        )
         {
             bool succeeded;
             try
             {
-                var redis = redisMasterDictionary[redisServer];
                 succeeded = await redis.GetDatabase()
                     .StringSetAsync(resource, val, ttl, When.NotExists)
                     .ConfigureAwait(false);
@@ -193,14 +243,13 @@ public class RedisDistributedLockManager : IDistributedLockManager
             return succeeded;
         }
 
-        private async Task<bool> UnlockInstanceAsync(string redisServer, string resource, byte[] val)
+        private static async Task<bool> UnlockInstanceAsync(ConnectionMultiplexer redis, string resource, byte[] val)
         {
             bool succeeded;
             try
             {
                 RedisKey[] key = [resource,];
                 RedisValue[] values = [val,];
-                var redis = redisMasterDictionary[redisServer];
                 var extendResult = (long)await redis.GetDatabase()
                     .ScriptEvaluateAsync(UnlockScript, key, values)
                     .ConfigureAwait(false);
@@ -214,26 +263,29 @@ public class RedisDistributedLockManager : IDistributedLockManager
             return succeeded;
         }
 
-        private async Task<bool> ExtendInstanceAsync(string redisServer, string resource, byte[] val, TimeSpan ttl)
+        /// <returns>
+        ///     1 on success, 0 if the key doesn't exist, -1 if the key value didn't match, null if the instance couldn't be
+        ///     reached.
+        /// </returns>
+        private static async Task<long?> ExtendInstanceAsync(
+            ConnectionMultiplexer redis,
+            string resource,
+            byte[] val,
+            TimeSpan ttl
+        )
         {
-            bool succeeded;
             try
             {
-                var redis = redisMasterDictionary[redisServer];
                 RedisKey[] key = [resource,];
                 RedisValue[] values = [val, (long)ttl.TotalMilliseconds,];
-                // Returns 1 on success, 0 on failure setting expiry or key not existing, -1 if the key value didn't match
-                var extendResult = (long)await redis.GetDatabase()
+                return (long)await redis.GetDatabase()
                     .ScriptEvaluateAsync(ExtendScript, key, values)
                     .ConfigureAwait(false);
-                succeeded = extendResult == 1;
             }
             catch (Exception)
             {
-                succeeded = false;
+                return null;
             }
-
-            return succeeded;
         }
 
         public async Task<(bool, DistributedLock?)> LockAsync(RedisKey resource, TimeSpan ttl)
@@ -241,50 +293,28 @@ public class RedisDistributedLockManager : IDistributedLockManager
             var val = CreateUniqueLockId();
             DistributedLock? innerLock = null;
             var successful = await Policy.HandleResult(false)
-                .WaitAndRetryAsync(
-                    DefaultRetryCount,
-                    _ =>
-                    {
-                        var maxRetryDelay = (int)DefaultRetryDelay.TotalMilliseconds;
-                        var rnd = new Random();
-                        return TimeSpan.FromMilliseconds(rnd.Next(maxRetryDelay));
-                    }
-                )
+                .WaitAndRetryAsync(DefaultRetryCount, GetRetryDelay)
                 .ExecuteAsync(async () =>
                     {
                         try
                         {
-                            var n = 0;
-                            var startTime = DateTime.Now;
-                            // Use keys
-                            await redisMasterDictionary.ParallelForEachAsync(async kvp =>
-                                    {
-                                        if (await LockInstanceAsync(kvp.Key, resource!, val, ttl).ConfigureAwait(false))
-                                        {
-                                            n++;
-                                        }
-                                    }
+                            var stopwatch = Stopwatch.StartNew();
+                            var results = await Task.WhenAll(
+                                    redisMasters.Select(redis => LockInstanceAsync(redis, resource!, val, ttl))
                                 )
                                 .ConfigureAwait(false);
 
-                            /*
-                             * Add 2 milliseconds to the drift to account for Redis expires
-                             * precision, which is 1 millisecond, plus 1 millisecond min drift
-                             * for small TTLs.
-                             */
-                            var drift = Convert.ToInt32((ttl.TotalMilliseconds * ClockDriveFactor) + 2);
-                            var validityTime = ttl - (DateTime.Now - startTime) - new TimeSpan(0, 0, 0, 0, drift);
-                            if (n >= Quorum && validityTime.TotalMilliseconds > 0)
+                            var validityTime = GetValidityTime(ttl, stopwatch.Elapsed);
+                            if (results.Count(r => r) >= Quorum && validityTime > TimeSpan.Zero)
                             {
-                                innerLock = new DistributedLock(resource, val, validityTime, resource!);
+                                innerLock = new DistributedLock(resource, val, ttl, resource!)
+                                {
+                                    ValidUntil = GetTimestampAfter(validityTime),
+                                };
                                 return true;
                             }
 
-                            await redisMasterDictionary.ParallelForEachAsync(async kvp =>
-                                    {
-                                        await UnlockInstanceAsync(kvp.Key, resource!, val).ConfigureAwait(false);
-                                    }
-                                )
+                            await Task.WhenAll(redisMasters.Select(redis => UnlockInstanceAsync(redis, resource!, val)))
                                 .ConfigureAwait(false);
                             return false;
                         }
@@ -300,36 +330,21 @@ public class RedisDistributedLockManager : IDistributedLockManager
         }
 
         public async Task UnlockAsync(DistributedLock lockObject) => await Policy.HandleResult(false)
-            .WaitAndRetryAsync(
-                DefaultRetryCount,
-                _ =>
-                {
-                    var maxRetryDelay = (int)DefaultRetryDelay.TotalMilliseconds;
-                    var rnd = new Random();
-                    return TimeSpan.FromMilliseconds(rnd.Next(maxRetryDelay));
-                }
-            )
+            .WaitAndRetryAsync(DefaultRetryCount, GetRetryDelay)
             .ExecuteAsync(async () =>
                 {
                     try
                     {
-                        var n = 0;
-                        await redisMasterDictionary.ParallelForEachAsync(async kvp =>
-                                {
-                                    if (await UnlockInstanceAsync(kvp.Key, lockObject.Resource!, lockObject.Value!)
-                                            .ConfigureAwait(false))
-                                    {
-                                        n++;
-                                    }
-                                }
+                        var results = await Task.WhenAll(
+                                redisMasters.Select(redis => UnlockInstanceAsync(
+                                    redis,
+                                    lockObject.Resource!,
+                                    lockObject.Value!
+                                )
+                                )
                             )
                             .ConfigureAwait(false);
-                        if (n >= Quorum)
-                        {
-                            return true;
-                        }
-
-                        return false;
+                        return results.Count(r => r) >= Quorum;
                     }
                     catch (Exception)
                     {
@@ -339,65 +354,40 @@ public class RedisDistributedLockManager : IDistributedLockManager
             )
             .ConfigureAwait(false);
 
-        public async Task<bool> ExtendAsync(DistributedLock lockObject) => await Policy.HandleResult(false)
-            .WaitAndRetryAsync(
-                DefaultRetryCount,
-                _ =>
-                {
-                    var maxRetryDelay = (int)DefaultRetryDelay.TotalMilliseconds;
-                    var rnd = new Random();
-                    return TimeSpan.FromMilliseconds(rnd.Next(maxRetryDelay));
-                }
-            )
+        public async Task<ExtendResult> ExtendAsync(DistributedLock lockObject) => await Policy
+            .HandleResult(ExtendResult.Failed)
+            .WaitAndRetryAsync(DefaultRetryCount, GetRetryDelay)
             .ExecuteAsync(async () =>
                 {
                     try
                     {
-                        var n = 0;
-                        var startTime = DateTime.Now;
-                        // Use keys
-                        await redisMasterDictionary.ParallelForEachAsync(async kvp =>
-                                {
-                                    if (await ExtendInstanceAsync(
-                                                kvp.Key,
-                                                lockObject.Resource!,
-                                                lockObject.Value!,
-                                                lockObject.Validity
-                                            )
-                                            .ConfigureAwait(false))
-                                    {
-                                        n++;
-                                    }
-                                }
+                        var stopwatch = Stopwatch.StartNew();
+                        var results = await Task.WhenAll(
+                                redisMasters.Select(redis => ExtendInstanceAsync(
+                                        redis,
+                                        lockObject.Resource!,
+                                        lockObject.Value!,
+                                        lockObject.Ttl
+                                    )
+                                )
                             )
                             .ConfigureAwait(false);
 
-                        /*
-                         * Add 2 milliseconds to the drift to account for Redis expires
-                         * precision, which is 1 millisecond, plus 1 millisecond min drift
-                         * for small TTLs.
-                         */
-                        var drift = Convert.ToInt32((lockObject.Validity.TotalMilliseconds * ClockDriveFactor) + 2);
-                        var validityTime = lockObject.Validity -
-                                           (DateTime.Now - startTime) -
-                                           new TimeSpan(0, 0, 0, 0, drift);
-                        if (n >= Quorum && validityTime.TotalMilliseconds > 0)
+                        var validityTime = GetValidityTime(lockObject.Ttl, stopwatch.Elapsed);
+                        if (results.Count(r => r == 1) >= Quorum && validityTime > TimeSpan.Zero)
                         {
-                            return true;
+                            lockObject.ValidUntil = GetTimestampAfter(validityTime);
+                            return ExtendResult.Extended;
                         }
 
-                        await redisMasterDictionary.ParallelForEachAsync(async kvp =>
-                                {
-                                    await UnlockInstanceAsync(kvp.Key, lockObject.Resource!, lockObject.Value!)
-                                        .ConfigureAwait(false);
-                                }
-                            )
-                            .ConfigureAwait(false);
-                        return false;
+                        // Don't unlock on failure: the lock may still be valid and the next renewal may succeed.
+                        // It's lost only if too many instances no longer hold our value for a quorum to be possible.
+                        var lostCount = results.Count(r => r is 0 or -1);
+                        return lostCount > redisMasters.Count - Quorum ? ExtendResult.Lost : ExtendResult.Failed;
                     }
                     catch (Exception)
                     {
-                        return false;
+                        return ExtendResult.Failed;
                     }
                 }
             )

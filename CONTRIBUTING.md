@@ -3,7 +3,7 @@
 Thank you for your interest in contributing to RedisDistributedLock! This library is a .NET implementation of the
 [Redlock](https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/) distributed locking algorithm,
 originally extracted from [redlock-cs](https://github.com/KidFashion/redlock-cs/) and improved with async APIs,
-dependency injection support, retries and automatic lease renewal.
+dependency injection support, retries, and automatic lease renewal.
 
 ## Getting Started
 
@@ -48,13 +48,39 @@ if (handle != null)
 }
 ```
 
-To exercise the Redlock quorum logic, test against multiple independent Redis masters, not just a single instance.
+### Testing against multiple Redis masters
+
+A single Redis instance means a quorum of 1, so the Redlock quorum logic is never really exercised. To exercise it,
+test against multiple independent Redis masters, not just a single instance. `docker-compose.yaml` starts three of them
+on ports 6379, 6380, and 6381:
+
+```bash
+docker compose up -d
+```
+
+Register them with the multi-master overload (a lock then needs 2 of 3 instances to agree):
+
+```csharp
+services.AddRedisDistributedLock(["localhost:6379", "localhost:6380", "localhost:6381"]);
+```
+
+Then simulate failures while holding a renewable lock:
+
+- `docker compose stop redis3`: the lock should still be held and renewed (2 of 3 instances remain).
+- `docker compose stop redis2`: the quorum is gone, so `IRenewableDistributedLockHandle.LockLost` should fire once
+  the lock's validity runs out.
+- `docker compose start redis2 redis3` to bring them back, and `docker compose down` when you're done.
+
+Keep `lockPeriod` well above `leasePeriod / 2` plus your per-instance timeout: renewal waits for the slowest instance,
+so an unreachable master can delay it by up to the client's timeout (about 1s by default).
+
+The instances must be independent masters. Pointing at replicas or nodes of the same cluster doesn't give Redlock's
+guarantees, because StackExchange.Redis treats them as a single deployment.
 
 ## Spot a Typo?
 
 Typos and other small fixes are important to us — no contribution is too small! Go ahead and open a Pull Request;
-there's
-no need to create a separate issue.
+there's no need to create a separate issue.
 
 ## Found a Bug or Have a Suggestion?
 
@@ -82,16 +108,17 @@ Please open an [issue](https://github.com/dradoaica/RedisDistributedLock/issues/
 
 ## Contribution Principles
 
-- **Correctness first**: Changes to locking, unlocking, extending or lease renewal must preserve the Redlock guarantees:
+- **Correctness first**: Changes to locking, unlocking, extending, or lease renewal must preserve the Redlock
+  guarantees:
   majority quorum, validity time accounting for elapsed time and clock drift, and lock ownership checked atomically in
   Lua scripts. Please explain in the PR why the change is safe, including failure scenarios (Redis instance down,
   network partition, slow responses).
 - **Backward compatibility**: The public API (`IDistributedLockManager`, `IDistributedLock`,
   `IRenewableDistributedLockHandle`, `RedisDistributedLockOptions`, `AddRedisDistributedLock`) is used by downstream
   applications. Avoid breaking changes; if one is necessary, call it out clearly.
-- **Minimal dependencies**: The library intentionally depends only on StackExchange.Redis, Polly, AsyncEnumerator and
+- **Minimal dependencies**: The library intentionally depends only on StackExchange.Redis, Polly, AsyncEnumerator, and
   Microsoft.Extensions abstractions. New dependencies need a strong justification.
-- **Reliability**: We welcome improvements to error handling, retry/backoff behavior and lease renewal. Describe the
+- **Reliability**: We welcome improvements to error handling, retry/backoff behavior, and lease renewal. Describe the
   scenario that motivated the change and how you verified it.
 - **Performance**: Include before/after measurements (e.g. BenchmarkDotNet) for performance changes. Optimizations
   that make the locking logic harder to reason about will receive extra scrutiny.

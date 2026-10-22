@@ -3,6 +3,10 @@ using System;
 
 namespace RedisDistributedLock;
 
+/// <summary>
+///     Uses the maximum interval while executions succeed. After a failure, retries at the minimum interval and backs
+///     off exponentially (randomized) up to the maximum interval.
+/// </summary>
 internal class RandomizedExponentialBackoffStrategy : IDelayStrategy
 {
     private const double RandomizationFactor = 0.2;
@@ -51,20 +55,22 @@ internal class RandomizedExponentialBackoffStrategy : IDelayStrategy
     {
         if (executionSucceeded)
         {
+            // Back to the normal (maximum) interval
+            currentInterval = maximumInterval;
+            backoffExponent = 0;
+        }
+        else if (backoffExponent == 0)
+        {
+            // First failure after a success: retry as soon as possible
             currentInterval = minimumInterval;
             backoffExponent = 1;
         }
         else if (currentInterval != maximumInterval)
         {
-            var backoffInterval = minimumInterval;
-
-            if (backoffExponent > 0)
-            {
-                var incrementMsec = RandomNext(1.0 - RandomizationFactor, 1.0 + RandomizationFactor) *
-                                    Math.Pow(2.0, backoffExponent - 1) *
-                                    deltaBackoff.TotalMilliseconds;
-                backoffInterval += TimeSpan.FromMilliseconds(incrementMsec);
-            }
+            var incrementMsec = RandomNext(1.0 - RandomizationFactor, 1.0 + RandomizationFactor) *
+                                Math.Pow(2.0, backoffExponent - 1) *
+                                deltaBackoff.TotalMilliseconds;
+            var backoffInterval = minimumInterval + TimeSpan.FromMilliseconds(incrementMsec);
 
             if (backoffInterval < maximumInterval)
             {

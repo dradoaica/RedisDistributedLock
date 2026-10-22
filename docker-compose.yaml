@@ -1,0 +1,15 @@
+# Three independent Redis masters (no replication, no cluster) for exercising the Redlock quorum logic locally.
+# Start with `docker compose up -d`; stop one with `docker compose stop redis3` to simulate an instance failure.
+services:
+  redis1:
+    image: redis:7-alpine
+    command: [ "redis-server", "--save", "", "--appendonly", "no" ]
+    ports: [ "6379:6379" ]
+  redis2:
+    image: redis:7-alpine
+    command: [ "redis-server", "--save", "", "--appendonly", "no" ]
+    ports: [ "6380:6379" ]
+  redis3:
+    image: redis:7-alpine
+    command: [ "redis-server", "--save", "", "--appendonly", "no" ]
+    ports: [ "6381:6379" ]
