@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      microsoft-extensions:
+        patterns:
+          - Microsoft.Extensions.*
+          - Microsoft.Bcl.*
+      tests:
+        patterns:
+          - Microsoft.Testing.*
+          - xunit*
+
+  # the actions of the workflows, pinned by commit
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

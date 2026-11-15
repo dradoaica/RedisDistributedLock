@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 
 namespace RedisDistributedLock.Abstractions;
 
-public interface ITaskSeriesTimer : IDisposable
+internal interface ITaskSeriesTimer : IDisposable
 {
     void Start();
 

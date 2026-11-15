@@ -1,15 +1,42 @@
-# Three independent Redis masters (no replication, no cluster) for exercising the Redlock quorum logic locally.
-# Start with `docker compose up -d`; stop one with `docker compose stop redis3` to simulate an instance failure.
+# Three independent Redis masters and three independent Valkey masters (no replication, no cluster) for exercising the
+# Redlock quorum logic locally. Start with `docker compose up -d --wait`; stop one with `docker compose stop redis3` to
+# simulate an instance failure.
 services:
   redis1:
     image: redis:7-alpine
     command: [ "redis-server", "--save", "", "--appendonly", "no" ]
+    healthcheck: &redis-healthcheck
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 1s
+      timeout: 3s
+      retries: 30
     ports: [ "6379:6379" ]
   redis2:
     image: redis:7-alpine
     command: [ "redis-server", "--save", "", "--appendonly", "no" ]
+    healthcheck: *redis-healthcheck
     ports: [ "6380:6379" ]
   redis3:
     image: redis:7-alpine
     command: [ "redis-server", "--save", "", "--appendonly", "no" ]
+    healthcheck: *redis-healthcheck
     ports: [ "6381:6379" ]
+  valkey1:
+    image: valkey/valkey:8-alpine
+    command: [ "valkey-server", "--save", "", "--appendonly", "no" ]
+    healthcheck: &valkey-healthcheck
+      test: [ "CMD", "valkey-cli", "ping" ]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    ports: [ "6382:6379" ]
+  valkey2:
+    image: valkey/valkey:8-alpine
+    command: [ "valkey-server", "--save", "", "--appendonly", "no" ]
+    healthcheck: *valkey-healthcheck
+    ports: [ "6383:6379" ]
+  valkey3:
+    image: valkey/valkey:8-alpine
+    command: [ "valkey-server", "--save", "", "--appendonly", "no" ]
+    healthcheck: *valkey-healthcheck
+    ports: [ "6384:6379" ]

@@ -13,11 +13,7 @@ If this is your first visit, a great way to begin is by tackling issues tagged a
 ### Prerequisites
 
 - [.NET SDK](https://dotnet.microsoft.com/download) 10.0 or later (see `global.json`)
-- A Redis server for manual testing, for example:
-
-  ```bash
-  docker run --rm -p 6379:6379 redis:latest
-  ```
+- Docker, to run the Redis and Valkey masters that the integration tests use
 
 ### Building
 
@@ -27,6 +23,33 @@ dotnet build -c Release
 ```
 
 The library targets `netstandard2.1`, so please avoid APIs that are not available on that target.
+
+### Testing
+
+```bash
+docker compose up -d --wait
+dotnet test
+```
+
+The unit tests (`tests/RedisDistributedLock.UnitTests`) replace the Redis masters with in-memory fakes that can be taken
+down, hung or wiped, so they need no Redis. They also replace the clock (`RedisDistributedLockOptions.TimeProvider`)
+with one that only the test moves, so a lock period can't run out because the machine was slow: measure time in the
+library with the `TimeProvider`, never with `Stopwatch` or `Task.Delay`, and move the clock in a test with the helpers
+of `FakeTime`. The integration tests (`tests/RedisDistributedLock.IntegrationTests`) run
+the same tests against real Redis masters and against real Valkey masters: the three of each started by
+`docker-compose.yaml` (Redis on ports 6379 to 6381, Valkey on 6382 to 6384), or the semicolon-separated connection
+strings in `REDIS_TEST_CONNECTION_STRINGS` and `VALKEY_TEST_CONNECTION_STRINGS`. They are skipped when the masters
+can't be reached. Set `REDIS_TESTS_REQUIRED=true`, as CI does, to make them fail instead.
+
+Either kind can be run alone:
+
+```bash
+dotnet test --project tests/RedisDistributedLock.UnitTests
+dotnet test --project tests/RedisDistributedLock.IntegrationTests
+```
+
+`scripts/check-vulnerable-packages.sh` fails when a dependency, direct or transitive, has a known vulnerability of
+severity High or Critical. The Tests workflow runs all of the above on every pull request and push to `main`.
 
 ### Trying it out
 
@@ -71,8 +94,9 @@ Then simulate failures while holding a renewable lock:
   the lock's validity runs out.
 - `docker compose start redis2 redis3` to bring them back, and `docker compose down` when you're done.
 
-Keep `lockPeriod` well above `leasePeriod / 2` plus your per-instance timeout: renewal waits for the slowest instance,
-so an unreachable master can delay it by up to the client's timeout (about 1s by default).
+A renewal waits for the slowest instance, so a master that doesn't answer delays it by up to
+`RedisDistributedLockOptions.InstanceTimeout` (a quarter of `lockPeriod` by default). `leasePeriod` can't be longer than
+`lockPeriod`, which leaves room for that.
 
 The instances must be independent masters. Pointing at replicas or nodes of the same cluster doesn't give Redlock's
 guarantees, because StackExchange.Redis treats them as a single deployment.
@@ -87,7 +111,7 @@ there's no need to create a separate issue.
 Please open an [issue](https://github.com/dradoaica/RedisDistributedLock/issues/new) with:
 
 - A clear title and description
-- The RedisDistributedLock version, .NET runtime and Redis version/topology
+- The RedisDistributedLock version, .NET runtime and Redis or Valkey version/topology
 - Steps to reproduce or a minimal code sample (for bugs)
 - Whether you're interested in implementing the change yourself
 
@@ -101,9 +125,9 @@ Please open an [issue](https://github.com/dradoaica/RedisDistributedLock/issues/
   nullable
   reference types enabled). Fix any new compiler warnings.
 - Use `ConfigureAwait(false)` on awaited calls inside the library.
-- Don't bump `<Version>` in `RedisDistributedLock.csproj` in your PR; the maintainer does that when releasing. Every
-  push
-  to `main` packs the project and pushes it to GitHub Packages, skipping versions that already exist.
+- Don't bump `<Version>` in `RedisDistributedLock.csproj` in your PR. A release is a published GitHub release: the
+  Release workflow runs the tests, packs the project with the version of the release's tag (e.g. `3.0.0`) and pushes it
+  to GitHub Packages (and to nuget.org, when a `NUGET_API_KEY` secret is set).
 - Update `README.md` when you change public APIs or behavior.
 
 ## Contribution Principles
@@ -114,17 +138,19 @@ Please open an [issue](https://github.com/dradoaica/RedisDistributedLock/issues/
   Lua scripts. Please explain in the PR why the change is safe, including failure scenarios (Redis instance down,
   network partition, slow responses).
 - **Backward compatibility**: The public API (`IDistributedLockManager`, `IDistributedLock`,
-  `IRenewableDistributedLockHandle`, `RedisDistributedLockOptions`, `AddRedisDistributedLock`) is used by downstream
+  `IRenewableDistributedLockHandle`, `RenewalRetryStrategy`, `RedisDistributedLockManager`,
+  `RedisDistributedLockOptions`, `AddRedisDistributedLock`, `DistributedLockLostException`) is used by downstream
   applications. Avoid breaking changes; if one is necessary, call it out clearly.
-- **Minimal dependencies**: The library intentionally depends only on StackExchange.Redis, Polly, AsyncEnumerator, and
-  Microsoft.Extensions abstractions. New dependencies need a strong justification.
+- **Minimal dependencies**: The library intentionally depends only on StackExchange.Redis, Microsoft.Extensions
+  abstractions and Microsoft.Bcl.TimeProvider (the clock, so that tests can replace it). New dependencies need a strong
+  justification.
 - **Reliability**: We welcome improvements to error handling, retry/backoff behavior, and lease renewal. Describe the
   scenario that motivated the change and how you verified it.
 - **Performance**: Include before/after measurements (e.g. BenchmarkDotNet) for performance changes. Optimizations
   that make the locking logic harder to reason about will receive extra scrutiny.
-- **Tests**: The repository doesn't have an automated test suite yet. Contributions that add one (ideally
-  running against real Redis instances, e.g. via Testcontainers) are very welcome, and tests for new behavior are
-  appreciated.
+- **Tests**: Add tests for new behavior and for every bug fix. Failure scenarios (instance down, slow or restarted)
+  belong in the unit tests, where they are deterministic; anything that depends on what Redis itself does belongs in
+  the integration tests.
 
 ## License
 

@@ -12,5 +12,11 @@
         <File Path="README.md"/>
         <File Path="SECURITY.md"/>
     </Folder>
-    <Project Path="RedisDistributedLock/RedisDistributedLock.csproj"/>
+    <Folder Name="/src/">
+        <Project Path="src/RedisDistributedLock/RedisDistributedLock.csproj"/>
+    </Folder>
+    <Folder Name="/tests/">
+        <Project Path="tests/RedisDistributedLock.IntegrationTests/RedisDistributedLock.IntegrationTests.csproj"/>
+        <Project Path="tests/RedisDistributedLock.UnitTests/RedisDistributedLock.UnitTests.csproj"/>
+    </Folder>
 </Solution>

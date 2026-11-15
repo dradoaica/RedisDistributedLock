@@ -2,7 +2,7 @@
 
 namespace RedisDistributedLock.Abstractions;
 
-public interface IDelayStrategy
+internal interface IDelayStrategy
 {
     TimeSpan GetNextDelay(bool executionSucceeded);
 }

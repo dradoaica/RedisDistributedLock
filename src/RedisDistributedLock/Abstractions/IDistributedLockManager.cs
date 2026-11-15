@@ -16,6 +16,7 @@ public interface IDistributedLockManager
     /// </param>
     /// <param name="cancellationToken"></param>
     /// <returns>Null if can't acquire the lock. This is common if somebody else holds it.</returns>
+    /// <remarks>The lock isn't renewed: it expires after <paramref name="lockPeriod" /> unless the caller renews it.</remarks>
     Task<IDistributedLock?> TryLockAsync(string lockId, TimeSpan lockPeriod, CancellationToken cancellationToken);
 
     /// <summary>Try create a renewable lock handle specified by lockId.</summary>
@@ -24,16 +25,24 @@ public interface IDistributedLockManager
     ///     The length of the lease to acquire. The exact value here is restricted based on the underlying
     ///     implementation.
     /// </param>
-    /// <param name="leasePeriod"></param>
-    /// <param name="linear"></param>
-    /// <param name="preExecuteCheck"></param>
+    /// <param name="leasePeriod">
+    ///     The lease is renewed every half of this period. It must not be longer than
+    ///     <paramref name="lockPeriod" />, so that a renewal that fails can be retried before the lock expires.
+    /// </param>
+    /// <param name="retryStrategy">How failed renewals are retried.</param>
+    /// <param name="preExecuteCheck">
+    ///     Called before each renewal. Returning false stops the renewal and cancels
+    ///     <see cref="IRenewableDistributedLockHandle.LockLost" />, because the lock then expires. The lock is left to expire
+    ///     rather than released, which gives the holder the rest of the lock period to stop.
+    /// </param>
     /// <param name="cancellationToken"></param>
     /// <returns>Null if can't acquire the lock. This is common if somebody else holds it.</returns>
+    /// <remarks>Dispose of the handle to stop the renewal and release the lock.</remarks>
     Task<IRenewableDistributedLockHandle?> TryCreateRenewableLockHandleAsync(
         string lockId,
         TimeSpan lockPeriod,
         TimeSpan leasePeriod,
-        bool linear,
+        RenewalRetryStrategy retryStrategy,
         Func<bool>? preExecuteCheck,
         CancellationToken cancellationToken
     );
@@ -47,7 +56,7 @@ public interface IDistributedLockManager
     /// </returns>
     /// <remarks>
     ///     If this throws an exception, the lease is cancelled. Throws <c>DistributedLockLostException</c> when the lock
-    ///     expired or is held by someone else.
+    ///     expired or is held by someone else. A renewable lock handle renews its lock itself.
     /// </remarks>
     Task<bool> RenewAsync(IDistributedLock lockHandle, CancellationToken cancellationToken);
 
@@ -55,5 +64,9 @@ public interface IDistributedLockManager
     /// <param name="lockHandle">The previously acquired handle to be released.</param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
+    /// <remarks>
+    ///     For a renewable lock handle, prefer disposing of the handle, which also stops the renewal. Releasing a lock
+    ///     that was lost in the meantime is harmless: it never releases someone else's lock.
+    /// </remarks>
     Task ReleaseLockAsync(IDistributedLock lockHandle, CancellationToken cancellationToken);
 }

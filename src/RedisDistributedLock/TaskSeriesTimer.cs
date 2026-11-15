@@ -6,8 +6,11 @@ using System.Threading.Tasks;
 namespace RedisDistributedLock;
 
 /// <summary>Represents a timer that executes one task after another in a series.</summary>
-public sealed class TaskSeriesTimer(ITaskSeriesCommand? command, Task? initialWait, Func<bool>? preExecuteCheck = null)
-    : ITaskSeriesTimer
+internal sealed class TaskSeriesTimer(
+    ITaskSeriesCommand? command,
+    Task? initialWait,
+    Func<bool>? preExecuteCheck = null
+) : ITaskSeriesTimer
 {
     private readonly CancellationTokenSource cancellationTokenSource = new();
     private readonly ITaskSeriesCommand command = command ?? throw new ArgumentNullException(nameof(command));
@@ -61,9 +64,8 @@ public sealed class TaskSeriesTimer(ITaskSeriesCommand? command, Task? initialWa
             // Running callers might still be using the cancellation token.
             // Mark it canceled but don't dispose of the source while the callers are running.
             // Otherwise, callers would receive ObjectDisposedException when calling token.Register.
-            // For now, rely on finalization to clean up _cancellationTokenSource's wait handle (if allocated).
+            // For now, rely on finalization to clean up cancellationTokenSource's wait handle (if allocated).
             cancellationTokenSource.Cancel();
-            cancellationTokenSource.Dispose();
 
             disposed = true;
         }
@@ -113,7 +115,8 @@ public sealed class TaskSeriesTimer(ITaskSeriesCommand? command, Task? initialWa
                 {
                     if (preExecuteCheck != null && !preExecuteCheck())
                     {
-                        await StopAsync(cancellationToken).ConfigureAwait(false);
+                        // Not StopAsync: it waits for this very task to complete.
+                        cancellationTokenSource.Cancel();
                     }
                 }
                 catch
@@ -130,11 +133,6 @@ public sealed class TaskSeriesTimer(ITaskSeriesCommand? command, Task? initialWa
                 {
                     var result = await command.ExecuteAsync(cancellationToken).ConfigureAwait(false);
                     wait = result.Wait;
-                }
-                catch (Exception ex) when (ex.InnerException is OperationCanceledException)
-                {
-                    // OperationCanceledExceptions coming from storage are wrapped in a StorageException.
-                    // We'll handle them all here so they don't have to be managed for every call.
                 }
                 catch (OperationCanceledException)
                 {

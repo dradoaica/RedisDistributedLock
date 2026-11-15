@@ -3,7 +3,11 @@ using System;
 
 namespace RedisDistributedLock;
 
-public class LinearSpeedupStrategy : IDelayStrategy
+/// <summary>
+///     Uses the normal interval while executions succeed. Each failure divides the interval by the speedup divisor,
+///     down to the minimum interval.
+/// </summary>
+internal class LinearSpeedupStrategy : IDelayStrategy
 {
     private readonly int failureSpeedupDivisor;
     private readonly TimeSpan minimumInterval;

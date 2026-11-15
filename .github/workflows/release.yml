@@ -1,61 +1,78 @@
-name: Release Packages
+name: Release
 
+# a published GitHub release (tag e.g. 3.0.0): tests once, then the NuGet package, versioned by the tag; run by hand, a
+# dry run that packs it and publishes nothing
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - '*'
+  release:
+    types: [ published ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build (the dry run publishes nothing)
+        type: string
+        default: 0.0.0-dryrun
 
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  PACK_PROJECT: src/RedisDistributedLock/RedisDistributedLock.csproj
+
+permissions:
+  contents: read
 
 jobs:
-  release:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  packages:
+    needs: tests
     permissions:
       contents: read # to checkout codebase
       packages: write # to push NuGet packages to GitHub Packages
-
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # whether the secret is set: the secret itself goes only to the step that pushes, not to restore and pack, which
+    # run the MSBuild targets of third-party packages
+    env:
+      HAS_NUGET_API_KEY: ${{ secrets.NUGET_API_KEY != '' }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           global-json-file: global.json
-          source-url: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
-        env:
-          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restore Dependencies
-        run: |
-          set -euo pipefail
-          while IFS= read -r -d '' csproj; do
-            dotnet restore "$csproj"
-          done < <(find . -name '*.csproj' -not -path './.git/*' -print0)
+      - id: version
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.version }}
 
       - name: Pack NuGet Packages
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts/package/release
-          out="${GITHUB_WORKSPACE}/artifacts/package/release"
-          while IFS= read -r -d '' csproj; do
-            dotnet pack "$csproj" -c Release -o "$out" --no-restore
-          done < <(find . -name '*.csproj' -not -path './.git/*' -print0)
+        run: >-
+          dotnet pack "${{ env.PACK_PROJECT }}" -c Release -o artifacts/package/release
+          -p:Version="${{ steps.version.outputs.version }}"
 
+      # the .nupkg, whose assembly embeds its PDB
       - name: Push to GitHub Packages
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          owner="${{ github.repository_owner }}"
-          for f in artifacts/package/release/*.nupkg; do
-            dotnet nuget push "$f" \
-              --api-key "${{ secrets.GITHUB_TOKEN }}" \
-              --source "https://nuget.pkg.github.com/${owner}/index.json" \
-              --skip-duplicate
-          done
+        if: github.event_name == 'release'
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          dotnet nuget push "artifacts/package/release/*.nupkg"
+          --api-key "$GITHUB_PACKAGES_TOKEN"
+          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+          --skip-duplicate
+
+      # nuget.org too, with a NUGET_API_KEY secret: installing from GitHub Packages needs a token, even for a public package
+      - name: Push to nuget.org
+        if: github.event_name == 'release' && env.HAS_NUGET_API_KEY == 'true'
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: >-
+          dotnet nuget push "artifacts/package/release/*.nupkg"
+          --api-key "$NUGET_API_KEY"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate

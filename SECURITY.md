@@ -8,8 +8,8 @@ security fixes.
 
 | Version | Supported          |
 |---------|--------------------|
-| 1.0.x   | :white_check_mark: |
-| < 1.0   | :x:                |
+| 3.0.x   | :white_check_mark: |
+| < 3.0   | :x:                |
 
 If you find a security issue with an older version, please try updating to the latest version first. If for some reason
 you can't update, please let us know why so that we can better understand your situation.
@@ -23,7 +23,7 @@ Report them privately through
 include:
 
 - The affected version of RedisDistributedLock (and of StackExchange.Redis, if relevant)
-- Your Redis topology (single instance, multiple independent masters, cluster, Sentinel) and version
+- Your Redis or Valkey topology (single instance, multiple independent masters, cluster, Sentinel) and version
 - A description of the issue and its impact
 - Steps to reproduce, ideally a minimal code sample
 - Any suggested fix or mitigation
@@ -41,11 +41,13 @@ Examples of issues we consider in scope:
 - **Ownership violations**: a client releasing or extending a lock it does not own (e.g. a flaw in the Lua unlock/extend
   scripts or in lock value generation)
 - **Lease renewal failures** that silently leave a caller believing it still holds an expired lock
+- **Quorum miscounts**: one server getting more than one vote, e.g. because it is configured twice
 - **Secret leakage**: the Redis connection string, password or other credentials being logged, exposed in exceptions or
   otherwise disclosed by the library
 - **Key injection**: lock IDs or prefixes that allow a caller to read, overwrite or delete unrelated Redis keys
-- Vulnerabilities in dependencies (StackExchange.Redis, Polly, AsyncEnumerator, Microsoft.Extensions.*) that are
-  exploitable through this library
+- Vulnerabilities in dependencies (StackExchange.Redis, Microsoft.Extensions.*, Microsoft.Bcl.TimeProvider) that are
+  exploitable through this
+  library
 
 ## Out of Scope
 
@@ -54,5 +56,6 @@ Examples of issues we consider in scope:
   conditions, use a consensus-based system instead.
 - Insecure Redis deployments (no authentication, no TLS, Redis exposed to untrusted networks). Configure these via the
   connection string, e.g. `password=...,ssl=true`.
-- Vulnerabilities in Redis server itself; please report those to the
-  [Redis project](https://github.com/redis/redis/security/policy).
+- Vulnerabilities in the Redis or Valkey server itself; please report those to the
+  [Redis project](https://github.com/redis/redis/security/policy) or the
+  [Valkey project](https://github.com/valkey-io/valkey/security/policy).

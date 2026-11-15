@@ -5,10 +5,11 @@ using System.Threading.Tasks;
 
 namespace RedisDistributedLock;
 
-public class RenewLeaseCommand(
+internal class RenewLeaseCommand(
     IDistributedLockManager distributedLockManager,
     IDistributedLock distributedLock,
     IDelayStrategy delayStrategy,
+    TimeProvider timeProvider,
     CancellationTokenSource? lockLost = null
 ) : ITaskSeriesCommand
 {
@@ -17,7 +18,8 @@ public class RenewLeaseCommand(
         bool renewalSucceeded;
         try
         {
-            renewalSucceeded = await distributedLockManager.RenewAsync(distributedLock, cancellationToken);
+            renewalSucceeded = await distributedLockManager.RenewAsync(distributedLock, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -27,6 +29,6 @@ public class RenewLeaseCommand(
         }
 
         var delay = delayStrategy.GetNextDelay(renewalSucceeded);
-        return new TaskSeriesCommandResult(Task.Delay(delay, cancellationToken));
+        return new TaskSeriesCommandResult(timeProvider.Delay(delay, cancellationToken));
     }
 }

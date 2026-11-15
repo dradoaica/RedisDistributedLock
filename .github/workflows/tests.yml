@@ -1,0 +1,80 @@
+name: Tests
+
+# build, unit tests (with coverage), dependency scan and the integration tests (against the Redis masters and the Valkey
+# masters of docker-compose.yaml); the release workflow calls this workflow, so nothing is published without passing it.
+# The actions are pinned by commit; Dependabot (.github/dependabot.yml) moves the pins
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_call:
+  workflow_dispatch:
+
+# a newer push supersedes a running check of the same branch
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: dotnet build RedisDistributedLock.slnx -c Release
+
+      # the Redis masters are in-memory fakes here and the clock is the test's own: no Redis needed, no waiting
+      - name: Unit Tests
+        run: >-
+          dotnet test --project tests/RedisDistributedLock.UnitTests -c Release --no-build --timeout 5m
+          --coverage --coverage-output-format cobertura --results-directory coverage
+
+      - name: Coverage Report
+        uses: danielpalme/ReportGenerator-GitHub-Action@5f3701a41d14548c9b8e575a5c235230e515cbc0 # v5.6.0
+        with:
+          reports: coverage/**/*.cobertura.xml
+          targetdir: coverage-report
+          reporttypes: MarkdownSummaryGithub;Cobertura
+          assemblyfilters: +RedisDistributedLock
+
+      - name: Coverage Summary
+        run: cat coverage-report/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Coverage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: coverage-report
+
+      - name: Dependency Scan
+        run: ./scripts/check-vulnerable-packages.sh RedisDistributedLock.slnx
+
+      # Docker on the hosted runner
+      - name: Start Redis and Valkey Masters
+        run: docker compose up -d --wait
+
+      # required: without the masters the tests fail instead of being skipped
+      - name: Integration Tests
+        run: dotnet test --project tests/RedisDistributedLock.IntegrationTests -c Release --no-build --timeout 5m
+        env:
+          REDIS_TESTS_REQUIRED: true
+
+      - name: Diagnostics
+        if: failure()
+        run: docker compose logs --tail 200 || true
